@@ -1,0 +1,156 @@
+@if (store.session(); as session) {
+  <div class="game">
+    <aside class="mission" aria-labelledby="mission-title">
+      <a routerLink="/defis" class="back">Quitter vers les défis</a>
+      <p class="mode">{{ session.mode === 'DAILY' ? 'Défi du jour' : 'Mission du catalogue' }}</p>
+      <h1 id="mission-title">{{ session.title }}</h1>
+      <p class="riddle">{{ session.riddle }}</p>
+
+      <dl class="facts">
+        <div>
+          <dt>Difficulté</dt>
+          <dd><psh-difficulty [level]="session.difficulty" /></dd>
+        </div>
+        @if (session.zoneLabel) {
+          <div>
+            <dt>Zone</dt>
+            <dd>{{ session.zoneLabel }}</dd>
+          </div>
+        }
+        @if (store.challenge()?.period; as period) {
+          <div>
+            <dt>Période</dt>
+            <dd>{{ period.label }}</dd>
+          </div>
+        }
+        <div>
+          <dt>Tentatives</dt>
+          <dd>{{ session.attemptsLeft }} sur {{ session.maxAttempts }}</dd>
+        </div>
+      </dl>
+
+      @if (countdown(); as remaining) {
+        @if (!session.isFinished) {
+          <p class="timer" [class.hurry]="hurry()" role="timer" [attr.aria-label]="'Temps restant ' + remaining">
+            <span class="timer-label">Temps restant</span>
+            <span class="timer-value">{{ remaining }}</span>
+          </p>
+        }
+      }
+      @if (session.status === 'PAUSED') {
+        <div class="notice warning">
+          <p>Partie en pause : le chronomètre est arrêté.</p>
+          <button type="button" class="button" (click)="store.resume()" [disabled]="store.busy() !== null">Reprendre la partie</button>
+        </div>
+      }
+
+      <section class="hints" aria-labelledby="hints-title">
+        <h2 id="hints-title">Indices</h2>
+        @if (session.hints.total === 0) {
+          <p class="muted">Ce défi n'a pas d'indice.</p>
+        }
+        <ol>
+          @for (hint of session.hints.revealed; track $index) {
+            <li>{{ hint.text }}</li>
+          }
+        </ol>
+        @if (session.hints.nextCost !== null && store.inProgress()) {
+          <button type="button" class="button secondary" (click)="store.revealHint()" [disabled]="store.busy() !== null">
+            Révéler un indice ({{ session.hints.nextCost }} points de moins)
+          </button>
+        }
+      </section>
+
+      @if (store.lastAttempt(); as attempt) {
+        <psh-attempt-feedback [attempt]="attempt" />
+      }
+
+      @if (store.error()) {
+        <p class="notice error" role="alert">{{ store.error() }}</p>
+      }
+
+      @if (store.inProgress()) {
+        <div class="controls">
+          @if (session.allowsPause) {
+            <button type="button" class="button quiet" (click)="store.pause()" [disabled]="store.busy() !== null">Mettre en pause</button>
+          }
+          <button type="button" class="button quiet" (click)="abandon()" [disabled]="store.busy() !== null">
+            {{ confirmAbandon() ? 'Confirmer l’abandon' : 'Abandonner la partie' }}
+          </button>
+        </div>
+      }
+    </aside>
+
+    <section class="explorer" aria-label="Exploration des photographies">
+      @if (session.isFinished) {
+        <psh-result-panel [session]="session" [replayable]="store.challenge()?.replayable ?? false" (replay)="replay()" />
+      } @else {
+        <psh-photo-search-form #searchForm [challenge]="store.challenge()" [busy]="store.busy() === 'search'" (searchRequested)="store.search($event)" />
+
+        <div class="explorer-bar">
+          <div class="segmented" role="group" aria-label="Affichage des résultats">
+            <button type="button" [attr.aria-pressed]="view() === 'sheet'" (click)="view.set('sheet')">Planche contact</button>
+            <button type="button" [attr.aria-pressed]="view() === 'map'" (click)="view.set('map')">Carte</button>
+          </div>
+          @if (store.resultsMeta(); as meta) {
+            <p class="muted" aria-live="polite">{{ meta.total }} photo{{ meta.total > 1 ? 's' : '' }} trouvée{{ meta.total > 1 ? 's' : '' }}</p>
+          }
+        </div>
+
+        @if (store.searchError()) {
+          <p class="notice error" role="alert">{{ store.searchError() }}</p>
+        }
+
+        <div class="workspace" [class.with-selection]="store.selected() !== null">
+          <div class="results">
+            @if (view() === 'map') {
+              <psh-photo-map
+                [photos]="store.results()"
+                [area]="store.challenge()?.zone ?? null"
+                [selectedId]="store.selected()?.id ?? null"
+                (choose)="store.select($event)"
+                (searchBounds)="searchForm.searchWithin($event)"
+              />
+            } @else if (store.results().length > 0) {
+              <psh-contact-sheet
+                [photos]="store.results()"
+                [selectedId]="store.selected()?.id ?? null"
+                [triedIds]="store.triedIds()"
+                (choose)="store.select($event)"
+              />
+            } @else if (store.resultsMeta()) {
+              <p class="empty">Aucune photo pour ces critères. Retirez un mot-clé ou élargissez la période.</p>
+            } @else {
+              <p class="empty">Lancez une recherche : les indices du défi ont déjà réglé la période et la zone.</p>
+            }
+            @if (store.hasMore() && view() === 'sheet') {
+              <button type="button" class="button secondary more" (click)="store.loadMore()" [disabled]="store.busy() !== null">
+                Charger d'autres photos
+              </button>
+            }
+          </div>
+
+          @if (store.selected(); as photo) {
+            <aside class="inspector" aria-label="Photo sélectionnée">
+              <psh-photo-inspector [photo]="photo">
+                <button type="button" class="button" (click)="store.submit()" [disabled]="!store.canSubmit()">
+                  {{ store.busy() === 'submit' ? 'Vérification…' : 'Proposer cette photo' }}
+                </button>
+              </psh-photo-inspector>
+              @if (store.triedIds().includes(photo.id)) {
+                <p class="hint-text">Vous avez déjà proposé cette photo.</p>
+              }
+            </aside>
+          }
+        </div>
+      }
+    </section>
+  </div>
+} @else if (store.error()) {
+  <div class="page">
+    <p class="notice error" role="alert">{{ store.error() }}</p>
+    <a routerLink="/">Retour à l'accueil</a>
+  </div>
+} @else {
+  <div class="page"><p class="muted" aria-busy="true">Chargement de la partie…</p></div>
+}

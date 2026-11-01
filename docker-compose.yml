@@ -1,0 +1,91 @@
+# Pile complète en local : Traefik → frontend (nginx) et /api → backend NestJS,
+# PostgreSQL + PostGIS, Redis. Pour la production en HTTPS : voir docker-compose.prod.yml.
+name: photo-scavenger-hunt
+
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --accesslog=true
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  postgres:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-psh}
+      POSTGRES_USER: ${POSTGRES_USER:-psh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definissez POSTGRES_PASSWORD dans .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgres://${POSTGRES_USER:-psh}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-psh}
+      REDIS_URL: redis://redis:6379
+      PERSISTENCE_DRIVER: postgres
+      CACHE_DRIVER: redis
+      LEADERBOARD_DRIVER: redis
+      PHOTO_PROVIDER: ${PHOTO_PROVIDER:-flickr}
+      FLICKR_API_KEY: ${FLICKR_API_KEY:-}
+      LICENSE_PROFILE: ${LICENSE_PROFILE:-non-commercial}
+      JWT_SECRET: ${JWT_SECRET:?Definissez JWT_SECRET dans .env (32 caracteres minimum)}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      CORS_ORIGINS: ${PUBLIC_URL:-http://localhost:8080}
+      GAME_TIMEZONE: ${GAME_TIMEZONE:-Europe/Paris}
+      TRUST_PROXY: "true"
+      PRETTY_LOGS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=web
+      - traefik.http.services.api.loadbalancer.server.port=3000
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=PathPrefix(`/`)
+      - traefik.http.routers.web.entrypoints=web
+      - traefik.http.routers.web.priority=1
+      - traefik.http.services.web.loadbalancer.server.port=8080
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

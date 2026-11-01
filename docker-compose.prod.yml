@@ -1,0 +1,46 @@
+# Surcharge de production : HTTPS automatique (Let's Encrypt) sur ${DOMAIN}.
+# Usage : docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Nécessite Docker Compose 2.24 ou plus récent (balise !override).
+services:
+  traefik:
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?Definissez ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --accesslog=true
+    ports: !override
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+
+  backend:
+    environment:
+      CORS_ORIGINS: https://${DOMAIN:?Definissez DOMAIN}
+    labels: !override
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.services.api.loadbalancer.server.port=3000
+
+  frontend:
+    labels: !override
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.tls.certresolver=le
+      - traefik.http.routers.web.priority=1
+      - traefik.http.middlewares.hsts.headers.stsSeconds=31536000
+      - traefik.http.routers.web.middlewares=hsts
+      - traefik.http.services.web.loadbalancer.server.port=8080
+
+volumes:
+  letsencrypt:

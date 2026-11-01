@@ -1,0 +1,224 @@
+<div class="page">
+  <header class="page-header">
+    <a routerLink="/admin" class="back">Retour à la liste</a>
+    <h1>{{ isEdit() ? existing()?.title : 'Nouveau défi' }}</h1>
+    @if (existing(); as challenge) {
+      <p class="muted">
+        Statut : {{ challenge.status === 'PUBLISHED' ? 'publié' : challenge.status === 'DRAFT' ? 'brouillon' : 'désactivé' }}.
+        Critères enregistrés : {{ challenge.validationSummary }}.
+      </p>
+    }
+  </header>
+
+  <form class="editor" [formGroup]="form" (ngSubmit)="save(false)" novalidate>
+    <section class="section" aria-labelledby="mission-title">
+      <h2 id="mission-title">Mission</h2>
+      <label class="field">
+        <span>Titre</span>
+        <input class="input" formControlName="title" maxlength="120" />
+      </label>
+      <label class="field">
+        <span>Énigme</span>
+        <textarea class="textarea" formControlName="riddle" maxlength="2000"></textarea>
+        <small class="hint-text">Formulez la consigne telle que le joueur la lira, par exemple « Trouve une photographie d'un phare… ».</small>
+      </label>
+      <div class="grid-2">
+        <label class="field">
+          <span>Difficulté</span>
+          <select class="select" formControlName="difficulty">
+            @for (level of difficulties; track level) {
+              <option [value]="level">{{ difficultyLabels[level] }}</option>
+            }
+          </select>
+        </label>
+        <label class="field">
+          <span>Thème</span>
+          <select class="select" formControlName="theme">
+            @for (code of themes; track code) {
+              <option [value]="code">{{ themeLabels[code] }}</option>
+            }
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="clues-title">
+      <h2 id="clues-title">Indices publics : zone et période</h2>
+      <p class="muted">Le joueur voit ces informations dès le départ ; la carte s'ouvre sur la zone.</p>
+      <div class="grid-2">
+        <label class="field">
+          <span>Libellé de la zone</span>
+          <input class="input" formControlName="zoneLabel" placeholder="Littoral français" maxlength="120" />
+        </label>
+        <label class="field">
+          <span>Forme de la zone</span>
+          <select class="select" formControlName="zoneKind">
+            <option value="NONE">Aucune zone</option>
+            <option value="BOX">Rectangle</option>
+            <option value="CIRCLE">Cercle</option>
+          </select>
+        </label>
+      </div>
+      @if (formValue().zoneKind === 'BOX') {
+        <div class="grid-4">
+          <label class="field"><span>Latitude sud</span><input class="input" type="number" step="any" formControlName="minLat" /></label>
+          <label class="field"><span>Longitude ouest</span><input class="input" type="number" step="any" formControlName="minLon" /></label>
+          <label class="field"><span>Latitude nord</span><input class="input" type="number" step="any" formControlName="maxLat" /></label>
+          <label class="field"><span>Longitude est</span><input class="input" type="number" step="any" formControlName="maxLon" /></label>
+        </div>
+      }
+      @if (formValue().zoneKind === 'CIRCLE') {
+        <div class="grid-4">
+          <label class="field"><span>Latitude du centre</span><input class="input" type="number" step="any" formControlName="centerLat" /></label>
+          <label class="field"><span>Longitude du centre</span><input class="input" type="number" step="any" formControlName="centerLon" /></label>
+          <label class="field"><span>Rayon (km)</span><input class="input" type="number" step="any" min="0.1" formControlName="radiusKm" /></label>
+        </div>
+      }
+      @if (zonePreview(); as zone) {
+        <psh-photo-map class="zone-map" [area]="zone" />
+      }
+      <div class="grid-2">
+        <label class="field"><span>Photos prises à partir du</span><input class="input" type="date" formControlName="periodFrom" /></label>
+        <label class="field"><span>et jusqu'au</span><input class="input" type="date" formControlName="periodTo" /></label>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="reference-title">
+      <h2 id="reference-title">Photo de référence</h2>
+      <p class="muted">Elle est révélée au joueur en fin de partie, et le défi ne peut être publié que si elle satisfait les critères.</p>
+      <div class="row">
+        <label class="field grow">
+          <span>Rechercher sur Flickr</span>
+          <input class="input" formControlName="photoQuery" (keydown.enter)="$event.preventDefault(); searchPhotos()" />
+        </label>
+        <button type="button" class="button secondary" (click)="searchPhotos()">Rechercher</button>
+      </div>
+      @if (photoResults().length > 0) {
+        <psh-contact-sheet
+          [photos]="photoResults()"
+          [selectedId]="reference()?.id ?? null"
+          label="Photos candidates pour la référence"
+          (choose)="chooseReference($event)"
+        />
+      }
+      @if (reference(); as ref) {
+        <div class="reference">
+          <img [src]="ref.imageUrl" [alt]="ref.title" width="96" height="96" />
+          <p><strong>{{ ref.title }}</strong><br />par {{ ref.ownerName }}, identifiant {{ ref.id }}</p>
+        </div>
+      }
+    </section>
+
+    <section class="section" aria-labelledby="validation-title">
+      <h2 id="validation-title">Critères de validation</h2>
+      <p class="muted">Secrets pour le joueur. Un mot-clé seul ne suffit jamais : la photo exacte, la zone ou le lieu doivent intervenir.</p>
+      <div class="segmented" role="radiogroup" aria-label="Mode de validation">
+        <label><input type="radio" formControlName="validationMode" value="EXACT" />Photo exacte</label>
+        <label><input type="radio" formControlName="validationMode" value="CRITERIA" />Critères</label>
+        <label><input type="radio" formControlName="validationMode" value="PLACE" />Lieu</label>
+        <label><input type="radio" formControlName="validationMode" value="ADVANCED" />Avancé</label>
+      </div>
+
+      @switch (mode()) {
+        @case ('EXACT') {
+          <p>Seule la photo de référence est acceptée.</p>
+        }
+        @case ('CRITERIA') {
+          <div class="stack">
+            <label class="check"><input type="checkbox" formControlName="useZone" /> La photo doit être géolocalisée dans la zone du défi</label>
+            <label class="check"><input type="checkbox" formControlName="usePeriod" /> La photo doit avoir été prise dans la période du défi</label>
+            <div class="grid-2">
+              <label class="field">
+                <span>Mots-clés attendus (séparés par des virgules)</span>
+                <input class="input" formControlName="tags" placeholder="phare, lighthouse" />
+              </label>
+              <label class="field">
+                <span>Correspondance</span>
+                <select class="select" formControlName="tagMode">
+                  <option value="ANY">Au moins un mot-clé</option>
+                  <option value="ALL">Tous les mots-clés</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+        @case ('PLACE') {
+          <div class="grid-4">
+            <label class="field"><span>Latitude du lieu</span><input class="input" type="number" step="any" formControlName="placeLat" /></label>
+            <label class="field"><span>Longitude du lieu</span><input class="input" type="number" step="any" formControlName="placeLon" /></label>
+            <label class="field"><span>Tolérance (km)</span><input class="input" type="number" step="any" min="0.01" formControlName="toleranceKm" /></label>
+          </div>
+          <p class="hint-text">Choisir une photo de référence géolocalisée remplit le lieu automatiquement.</p>
+        }
+        @case ('ADVANCED') {
+          <label class="field">
+            <span>Règle JSON</span>
+            <textarea class="textarea code" formControlName="advanced" spellcheck="false"></textarea>
+            <small class="hint-text">Types : EXACT_PHOTO, IN_AREA, NEAR_POINT, TAKEN_BETWEEN, HAS_TAGS, ALL_OF, ANY_OF.</small>
+          </label>
+        }
+      }
+
+      <div class="row">
+        <label class="field grow">
+          <span>Tester les critères sur la photo n°</span>
+          <input class="input" formControlName="previewPhotoId" />
+        </label>
+        <button type="button" class="button secondary" (click)="runPreview()">Tester</button>
+      </div>
+      @if (preview(); as result) {
+        @if (!result.decisive) {
+          <p class="notice warning">Ces critères ne sont pas décisifs : ils seront refusés à l'enregistrement.</p>
+        }
+        <psh-attempt-feedback [attempt]="previewAsAttempt(result)" />
+      }
+    </section>
+
+    <section class="section" aria-labelledby="hints-title">
+      <h2 id="hints-title">Indices progressifs</h2>
+      <div formArrayName="hints" class="stack">
+        @for (hint of hints.controls; track hint; let index = $index) {
+          <div class="hint-row" [formGroupName]="index">
+            <label class="field grow">
+              <span>Indice {{ index + 1 }}</span>
+              <input class="input" formControlName="text" maxlength="500" />
+            </label>
+            <label class="field cost">
+              <span>Coût (points)</span>
+              <input class="input" type="number" min="0" max="1000" formControlName="cost" />
+            </label>
+            <button type="button" class="button quiet" (click)="removeHint(index)">Retirer</button>
+          </div>
+        }
+      </div>
+      @if (hints.length < 5) {
+        <button type="button" class="button secondary" (click)="addHint()">Ajouter un indice</button>
+      }
+    </section>
+
+    <section class="section" aria-labelledby="rules-title">
+      <h2 id="rules-title">Récompense et règles</h2>
+      <div class="grid-4">
+        <label class="field"><span>Points</span><input class="input" type="number" min="0" formControlName="rewardPoints" /></label>
+        <label class="field"><span>XP</span><input class="input" type="number" min="0" formControlName="rewardXp" /></label>
+        <label class="field"><span>Temps limite (s)</span><input class="input" type="number" min="30" max="7200" formControlName="timeLimitSeconds" /></label>
+        <label class="field"><span>Tentatives max.</span><input class="input" type="number" min="1" max="10" formControlName="maxAttempts" /></label>
+      </div>
+      <div class="grid-2">
+        <label class="field"><span>Disponible à partir du</span><input class="input" type="datetime-local" formControlName="availableFrom" /></label>
+        <label class="field"><span>Disponible jusqu'au</span><input class="input" type="datetime-local" formControlName="availableTo" /></label>
+      </div>
+      <label class="check"><input type="checkbox" formControlName="replayable" /> Le défi peut être rejoué (sans nouveaux points de classement)</label>
+      <label class="check"><input type="checkbox" formControlName="dailyEligible" /> Le défi peut être tiré comme défi du jour</label>
+    </section>
+
+    @if (error()) {
+      <p class="notice error" role="alert">{{ error() }}</p>
+    }
+
+    <div class="actions">
+      <button type="submit" class="button secondary" [disabled]="saving()">Enregistrer le brouillon</button>
+      <button type="button" class="button" (click)="save(true)" [disabled]="saving()">Enregistrer et publier</button>
+    </div>
+  </form>
+</div>

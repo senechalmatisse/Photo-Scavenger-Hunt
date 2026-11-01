@@ -1,0 +1,149 @@
+<div class="page">
+  @if (error()) {
+    <p class="notice error" role="alert">{{ error() }}</p>
+  }
+
+  @if (view(); as dashboard) {
+    <section class="daily" aria-labelledby="daily-title">
+      @if (dashboard.daily; as daily) {
+        <p class="daily-kicker">Défi du jour</p>
+        <h1 id="daily-title">{{ daily.challenge.title }}</h1>
+        <p class="riddle">{{ daily.challenge.riddle }}</p>
+        <dl class="facts">
+          <div>
+            <dt>Difficulté</dt>
+            <dd><psh-difficulty [level]="daily.challenge.difficulty" /></dd>
+          </div>
+          @if (daily.challenge.zoneLabel) {
+            <div>
+              <dt>Zone</dt>
+              <dd>{{ daily.challenge.zoneLabel }}</dd>
+            </div>
+          }
+          @if (daily.challenge.period) {
+            <div>
+              <dt>Période</dt>
+              <dd>{{ daily.challenge.period.label }}</dd>
+            </div>
+          }
+          <div>
+            <dt>Récompense</dt>
+            <dd>{{ daily.challenge.reward.points | number }} points</dd>
+          </div>
+        </dl>
+        @if (daily.mySession; as played) {
+          @if (played.status === 'IN_PROGRESS' || played.status === 'PAUSED') {
+            <a class="button" [routerLink]="['/partie', played.id]">Reprendre le défi du jour</a>
+          } @else {
+            <p class="played">
+              {{ statusLabels[played.status] }} aujourd'hui avec {{ played.points | number }} points. Un nouveau défi vous attend demain.
+            </p>
+          }
+        } @else {
+          <button type="button" class="button" (click)="startDaily(daily.challenge.id)" [disabled]="starting()">
+            Commencer le défi du jour
+          </button>
+        }
+      } @else {
+        <h1 id="daily-title">Pas de défi du jour pour le moment</h1>
+        <p class="lede">Choisissez une mission dans le catalogue en attendant.</p>
+        <a class="button" routerLink="/defis">Voir les défis</a>
+      }
+    </section>
+
+    <div class="split">
+      <section class="section" aria-labelledby="progress-title">
+        <h2 id="progress-title">Votre progression</h2>
+        <psh-level-meter [progress]="dashboard.progress.level" />
+        <dl class="facts">
+          <div>
+            <dt>Points</dt>
+            <dd>{{ dashboard.progress.points | number }}</dd>
+          </div>
+          <div>
+            <dt>Série en cours</dt>
+            <dd>{{ dashboard.progress.currentStreak }} jour{{ dashboard.progress.currentStreak > 1 ? 's' : '' }}</dd>
+          </div>
+          <div>
+            <dt>Missions réussies</dt>
+            <dd>{{ dashboard.progress.stats.missionsWon }} sur {{ dashboard.progress.stats.missionsPlayed }}</dd>
+          </div>
+        </dl>
+        @if (dashboard.recentAchievements.length > 0) {
+          <h3>Derniers badges</h3>
+          <ul class="badges">
+            @for (badge of dashboard.recentAchievements; track badge.code) {
+              <li>
+                <span class="badge-symbol" aria-hidden="true">{{ achievementSymbols[badge.icon] }}</span>
+                <span><strong>{{ badge.name }}</strong> {{ badge.description }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+
+      <section class="section" aria-labelledby="board-title">
+        <h2 id="board-title">Classement de la semaine</h2>
+        @if (dashboard.weeklyLeaderboard.entries.length === 0) {
+          <p class="muted">Aucun point marqué cette semaine : la première place est libre.</p>
+        } @else {
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Rang</th>
+                <th scope="col">Joueur</th>
+                <th scope="col" class="numeric">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (entry of dashboard.weeklyLeaderboard.entries; track entry.playerId) {
+                <tr [class.me]="entry.isMe">
+                  <td>{{ entry.rank }}</td>
+                  <td>{{ entry.displayName }}</td>
+                  <td class="numeric">{{ entry.points | number }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+        <a routerLink="/classements">Tous les classements</a>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="history-title">
+      <h2 id="history-title">Vos dernières parties</h2>
+      @if (dashboard.recentSessions.length === 0) {
+        <p class="muted">Aucune partie pour l'instant. Le défi du jour est un bon point de départ.</p>
+      } @else {
+        <ul class="history">
+          @for (session of dashboard.recentSessions; track session.id) {
+            <li>
+              <a [routerLink]="['/partie', session.id]">{{ session.title }}</a>
+              <span class="status" [attr.data-status]="session.status">{{ statusLabels[session.status] }}</span>
+              <span class="muted">{{ session.startedAt | date: 'd MMMM, HH:mm' }}</span>
+              <span class="points">{{ session.points | number }} pts</span>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="section" aria-labelledby="missions-title">
+      <h2 id="missions-title">Autres missions</h2>
+      <ul class="missions">
+        @for (challenge of dashboard.availableChallenges; track challenge.id) {
+          <li>
+            <a [routerLink]="['/defis', challenge.id]">
+              <strong>{{ challenge.title }}</strong>
+              <span class="muted">{{ themeLabels[challenge.theme] }}{{ challenge.zoneLabel ? ', ' + challenge.zoneLabel : '' }}</span>
+            </a>
+            <psh-difficulty [level]="challenge.difficulty" />
+          </li>
+        }
+      </ul>
+      <a routerLink="/defis">Parcourir le catalogue</a>
+    </section>
+  } @else if (!error()) {
+    <p class="muted" aria-busy="true">Chargement de votre tableau de bord…</p>
+  }
+</div>
